@@ -49,13 +49,34 @@ def fetch_friends(user_id: str, access_token: str) -> List[Dict[str, Any]]:
         "order": "name",
         "count": 5000,
         "offset": 0,
+        # "fields": "first_name,last_name,id,sex,bdate,country,city,photo_id,\
+        #     status,can_post,can_see_all_posts,can_write_private_message,contacts,\
+        #     domain,education,has_mobile,timezone,last_seen, nickname,online,relation, universities, education",
         "fields": [
-            "first_name", "last_name", "id", "sex", "bdate", "country", 
-            "city", "photo_id", "status", "can_post", "can_see_all_posts", 
-            "can_write_private_message", "contacts", "domain", "education", 
-            "has_mobile", "timezone", "last_seen", "nickname", "online", 
-            "relation", "universities"
-        ],
+                "first_name",
+                "last_name",
+                "id",
+                "sex",
+                "bdate",
+                "country",
+                "city",
+                "photo_id",
+                "status",
+                "can_post",
+                "can_see_all_posts",
+                "can_write_private_message",
+                "contacts",
+                "domain",
+                "education",
+                "has_mobile",
+                "timezone",
+                "last_seen",
+                "nickname",
+                "online",
+                "relation",
+                "universities",
+                "education",
+            ],
         "access_token": access_token,
         "v": "5.199"
     }
@@ -71,7 +92,9 @@ def fetch_friends(user_id: str, access_token: str) -> List[Dict[str, Any]]:
         print(f"API Error: {error.get('error_msg', 'Unknown error')}")
         return []
 
+    # print(data)
     friends = data.get("response", {}).get("items", [])
+    # print(friends)
     return [
         {
             "first_name": friend.get("first_name"),
@@ -96,6 +119,8 @@ def fetch_friends(user_id: str, access_token: str) -> List[Dict[str, Any]]:
             "online": friend.get("online"),
             "relation": friend.get("relation"),
             "universities": friend.get("universities"),
+            "education": friend.get("education"),
+
         }
         for friend in friends
     ]
@@ -143,7 +168,7 @@ def fetch_friends_of_each_friend(user_id: str, access_token: str, delay: float =
 
 def create_friends_network_graph(processed_friends: List[Dict[str, Any]]) -> nx.Graph:
     """
-    Create a NetworkX graph from processed friends data.
+    Create a NetworkX graph from processed friends data with comprehensive node attributes.
 
     Args:
         processed_friends (List[Dict[str, Any]]): List of friends with their friends' IDs.
@@ -156,12 +181,40 @@ def create_friends_network_graph(processed_friends: List[Dict[str, Any]]) -> nx.
     for friend in processed_friends:
         friend_id = str(friend.get('id'))
         friend_name = f"{friend.get('first_name', 'Unknown')} {friend.get('last_name', 'Unknown')}"
-        G.add_node(
-            friend_id, 
-            name=friend_name, 
-            first_name=friend.get('first_name'), 
-            last_name=friend.get('last_name')
-        )
+        
+        node_attributes = {
+            'name': friend_name,
+            'first_name': friend.get('first_name'),
+            'last_name': friend.get('last_name'),
+            'id': friend_id,
+            
+            'sex': friend.get('sex'),
+            'bdate': friend.get('bdate'),
+            
+            'country': friend.get('country', {}).get('title') if isinstance(friend.get('country'), dict) else friend.get('country'),
+            'city': friend.get('city', {}).get('title') if isinstance(friend.get('city'), dict) else friend.get('city'),
+            
+            'friends_count': friend.get('friends_count', 0),
+            'friends_ids': friend.get('friends_ids', []),
+            
+            'domain': friend.get('domain'),
+            'online': friend.get('online'),
+            'last_seen': friend.get('last_seen', {}).get('time') if isinstance(friend.get('last_seen'), dict) else friend.get('last_seen'),
+            
+            'can_post': friend.get('can_post'),
+            'can_write_private_message': friend.get('can_write_private_message'),
+            'relation': friend.get('relation'),
+            
+            'education': friend.get('education'),
+            'universities': [univ.get('name') for univ in friend.get('universities', [])] if friend.get('universities') else None,
+
+            'education': friend.get('education'),
+
+        }
+
+        node_attributes = {k: v for k, v in node_attributes.items() if v is not None}
+        
+        G.add_node(friend_id, **node_attributes)
 
     for i, friend1 in enumerate(processed_friends):
         for friend2 in processed_friends[i + 1:]:
@@ -199,6 +252,63 @@ def save_graph(graph: nx.Graph, filename: str) -> None:
     print(f"Graph saved to {filename}")
 
 
+def create_graph_from_json(json_file_path: str) -> nx.Graph:
+    """
+    Create a NetworkX graph from a JSON file with friends data.
+
+    Args:
+        json_file_path (str): Path to the JSON file containing friends data.
+
+    Returns:
+        nx.Graph: A graph representing the social network.
+    """
+    # Read the JSON file
+    with open(json_file_path, 'r', encoding='utf-8') as file:
+        friends_data = json.load(file)
+
+    # Create a new graph
+    G = nx.Graph()
+
+    # Add nodes with attributes
+    for friend in friends_data:
+        # Convert ID to string to ensure consistency
+        friend_id = str(friend.get('id'))
+        friend_name = f"{friend.get('first_name', 'Unknown')} {friend.get('last_name', 'Unknown')}"
+
+        
+        # Prepare node attributes
+        node_attributes = {
+            'vk_id': friend_id,
+            'name': friend_name,
+            'first_name': friend.get('first_name'),
+            'last_name': friend.get('last_name'),
+        }
+
+        # Add all non-None attributes
+        for key, value in friend.items():
+            if key != 'friends_ids' and value is not None:
+                if key == 'sex':
+                    value = 'female' if value == 1 else 'male' if value == 2 else 'unknown'
+                node_attributes[key] = value
+
+        # Add node to the graph
+        G.add_node(friend_id, **node_attributes)
+        # G.add_node(friend_name, **node_attributes)
+
+
+    # Add edges based on mutual friends
+    for friend in friends_data:
+        friend_id = str(friend.get('id'))
+        friends_ids = friend.get('friends_ids', [])
+
+
+        for other_friend_id in friends_ids:
+            # Ensure both nodes exist in the graph before adding an edge
+            if G.has_node(friend_id) and G.has_node(other_friend_id):
+                G.add_edge(friend_id, other_friend_id)
+
+    return G
+
 def main() -> None:
     access_token = os.getenv('ACCESS_TOKEN')
     if not access_token:
@@ -206,21 +316,25 @@ def main() -> None:
         return
 
     user_id = os.getenv('USER_ID')
-    processed_friends = fetch_friends_of_each_friend(user_id, access_token)
+    # processed_friends = fetch_friends_of_each_friend(user_id, access_token)
 
-    if processed_friends:
-        save_to_json(processed_friends, './data/friends_of_friends.json')
-        print("Saved friends of friends to 'friends_of_friends.json'")
-    else:
-        print("No data to save.")
+    # if processed_friends:
+    #     save_to_json(processed_friends, './data/friends_of_friends_new.json')
+    #     print("Saved friends of friends to 'friends_of_friends_new.json'")
+    # else:
+    #     print("No data to save.")
 
-    try:
-        friends_network = create_friends_network_graph(processed_friends)
-        save_graph(friends_network, './data/friends_network.gml')
-        print(f"Total nodes: {friends_network.number_of_nodes()}")
-        print(f"Total edges: {friends_network.number_of_edges()}")
-    except Exception as e:
-        print(f"Error creating network graph: {e}")
+
+    graph = create_graph_from_json('./data/friends_of_friends_new_updated.json')
+    save_graph(graph, './data/friends_network_new_updated.gml')
+
+    # try:
+    #     friends_network = create_friends_network_graph(processed_friends)
+    #     save_graph(friends_network, './data/friends_network.gml')
+    #     print(f"Total nodes: {friends_network.number_of_nodes()}")
+    #     print(f"Total edges: {friends_network.number_of_edges()}")
+    # except Exception as e:
+    #     print(f"Error creating network graph: {e}")
 
 
 if __name__ == "__main__":

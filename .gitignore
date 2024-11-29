@@ -163,5 +163,5 @@ cython_debug/
 #.idea/
 *.json
 script.share
-*.ipynb
+notebooks/
 data/
